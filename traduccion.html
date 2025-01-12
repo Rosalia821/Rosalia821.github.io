@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traduccion</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Arial', sans-serif;
+            background-color: #f3f4f6;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #1a73e8;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #toggle-camera {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        #toggle-camera:hover {
+            background-color: #0c5db5;
+        }
+        video {
+            width: 90%;
+            max-width: 640px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            margin-top: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        canvas {
+            display: none;
+        }
+        #output {
+            position: relative;
+            width: 90%;
+            max-width: 640px;
+            height: 360px;
+            margin-top: 10px;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>Traducción en tiempo real</h1>
+    <button id="toggle-camera">Encender Cámara</button>
+    <video id="camera" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+    <div id="output"></div>
+
+    <script>
+        const video = document.getElementById('camera');
+        const canvas = document.getElementById('canvas');
+        const output = document.getElementById('output');
+        const toggleButton = document.getElementById('toggle-camera');
+        const ctx = canvas.getContext('2d');
+
+        let stream = null;
+        let cameraActive = false;
+        let frameProcessingInterval = null;
+
+        // Abrir la cámara
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                cameraActive = true;
+                toggleButton.textContent = 'Apagar Cámara';
+                processFrames();
+            } catch (err) {
+                console.error('Error al acceder a la cámara:', err);
+                alert('No se pudo acceder a la cámara. Verifica los permisos.');
+            }
+        }
+
+        // Apagar la cámara
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            video.srcObject = null;
+            cameraActive = false;
+            toggleButton.textContent = 'Encender Cámara';
+            clearInterval(frameProcessingInterval);
+        }
+
+        // Procesar fotogramas y enviarlos al backend
+        async function processFrames() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            frameProcessingInterval = setInterval(async () => {
+                if (!cameraActive) return;
+
+                // Dibujar el fotograma en el canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = canvas.toDataURL('image/jpeg');
+                const base64Image = imageData.split(',')[1];
+
+                // Enviar al backend
+                const response = await fetch('http://127.0.0.1:5000/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: base64Image }),
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    displayPredictions(data.predictions);
+                } else {
+                    console.error('Error al procesar la imagen:', data);
+                }
+            }, 500); // Procesar cada 500 ms
+        }
+
+        // Mostrar las predicciones
+        function displayPredictions(predictions) {
+            output.innerHTML = ''; // Reiniciar el contenido
+            predictions.forEach(prediction => {
+                const box = document.createElement('div');
+                box.style.position = 'absolute';
+                box.style.border = '2px solid red';
+                box.style.left = `${prediction.x1}px`;
+                box.style.top = `${prediction.y1}px`;
+                box.style.width = `${prediction.x2 - prediction.x1}px`;
+                box.style.height = `${prediction.y2 - prediction.y1}px`;
+                box.style.pointerEvents = 'none';
+                output.appendChild(box);
+            });
+        }
+
+        // Alternar cámara al hacer clic en el botón
+        toggleButton.addEventListener('click', () => {
+            if (cameraActive) {
+                stopCamera();
+            } else {
+                startCamera();
+            }
+        });
+    </script>
+</body>
+</html>
